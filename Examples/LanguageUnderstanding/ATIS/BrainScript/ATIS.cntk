@@ -87,7 +87,10 @@ Train = [
         numMBsToShowResult = 100
         
         firstMBsToShowResult = 10 
-        
+
+        tensorBoardLogDir = "$OutputDir$/log"
+        tensorBoardNumMBsToLogResult = 50
+
         # if validation shows that the model has no improvement, then do back-up to the previously
         # estimated model and reduce learning rate
         loadBestModel = true

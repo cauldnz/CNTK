@@ -64,6 +64,9 @@ TrainConvNet = {
         dropoutRate = 0*5:0.5
 
         numMBsToShowResult = 100
+
+        tensorBoardLogDir = "$outputDir$/log"
+        tensorBoardNumMBsToLogResult = 50
     }
 
     reader = {

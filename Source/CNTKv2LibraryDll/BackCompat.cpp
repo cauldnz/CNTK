@@ -534,7 +534,12 @@ namespace CNTK
                 NOT_IMPLEMENTED;
             }
 
-            // Now traverse the model and construct the Function graph
+            return ConvertFromLegacyModel(net);
+        }
+
+        FunctionPtr ConvertFromLegacyModel(const ComputationNetworkPtr& net)
+        {
+            // Traverse the model and construct the Function graph
             std::unordered_map<ComputationNodeBasePtr, Variable> nodeToVariableMap;
             std::unordered_map<Variable, Variable> placeholderReplacements;
             std::vector<Variable> rootVariables;
@@ -556,7 +561,7 @@ namespace CNTK
                     rootVariables.push_back(var.IsOutput() ? (Variable)var.Owner() : var);
                 }
                 else
-                    LogicError("LoadLegacyModel(): invalid computation node element type.");
+                    LogicError("ConvertFromLegacyModel(): invalid computation node element type.");
             }
 
             auto rootComposite = Combine(rootVariables);

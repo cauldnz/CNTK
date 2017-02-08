@@ -286,6 +286,8 @@ train = {
         maxEpochs = 50
         numMBsToShowResult = 100
         firstMBsToShowResult = 10
+        tensorBoardLogDir = "$OutDir$/log"
+        tensorBoardNumMBsToLogResult = 50
         gradUpdateType = FSAdaGrad # TODO: Try FSAdaGrad?
         loadBestModel = false      # true # broken for some models (rereading overwrites something that got set by validation)
 
