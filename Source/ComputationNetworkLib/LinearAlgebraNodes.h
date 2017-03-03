@@ -265,12 +265,12 @@ class TimesNodeBase : public ComputationNode<ElemType>, public NumInputs<2>
 public:
     enum : int
     {
-        KeepAllDynamicAxes = -1, // the default, keep all dynamic axes in the output of Times
-        ReduceSequenceAxis = -2, // reduce the sequence axis in the output of Times. Currently only support cases like (m x k x s* x b*) x (k x s* x b*) -> (m x b*)
+        ReduceAllStaticAxes            = -1, // the default, reduce all static axes of the right operand
+        ReduceAllStaticAndSequenceAxes = -2, // reduce all static axes and sequence axis. Currently only support cases like (m x k x s* x b*) x (k x s* x b*) -> (m x b*)
     };
 
 public:
-    TimesNodeBase(DEVICEID_TYPE deviceId, const wstring& name, size_t outputRank = 1, int inferInputRankToMap = KeepAllDynamicAxes)
+    TimesNodeBase(DEVICEID_TYPE deviceId, const wstring& name, size_t outputRank = 1, int inferInputRankToMap = ReduceAllStaticAxes)
         : Base(deviceId, name), m_outputRank(outputRank), m_inferInputRankToMap(inferInputRankToMap), m_beingUnrolled(false)
     {
     }
@@ -303,7 +303,7 @@ public:
         if (modelVersion >= CNTK_MODEL_VERSION_12)
             fstream >> m_inferInputRankToMap;
         else
-            m_inferInputRankToMap = KeepAllDynamicAxes;
+            m_inferInputRankToMap = ReduceAllStaticAxes;
     }
 
 protected:
@@ -355,6 +355,35 @@ private:
         return input0_ok && input1_ok && outputScalar && notBothSparse && (m_transpose || !hasSparse);
     }
 
+    void RequestReduceSequenceAxisMatricesIfNeeded(MatrixPool& matrixPool)
+    {
+        if (!ReduceSequenceAxis()) return;
+
+        for (int i = 0; i < NumInputs; i++)
+        {
+            RequestMatrixFromPool(m_tempScatterIndices[i], matrixPool, InputRef(i).GetMBLayout()->GetNumCols(), true);
+            const auto& packedData = InputRef(i).Value();
+            if (packedData.GetMatrixType() == DENSE)
+                RequestMatrixFromPool(m_tempUnpackedValue[i], matrixPool, InputRef(i).GetSampleLayout().GetNumElements(), true);
+            else
+                m_tempUnpackedValue[i] = std::make_shared<Matrix<ElemType>>(packedData.GetNumRows(), packedData.GetNumCols(), packedData.GetDeviceId(), packedData.GetMatrixType(), packedData.GetFormat());
+        }
+    }
+
+    void ReleaseReduceSequenceAxisMatricesIfNeeded(MatrixPool& matrixPool)
+    {
+        if (!ReduceSequenceAxis()) return;
+
+        for (int i = 0; i < NumInputs; i++)
+        {
+            ReleaseMatrixToPool(m_tempScatterIndices[i], matrixPool);
+            if (InputRef(i).Value().GetMatrixType() == DENSE)
+                ReleaseMatrixToPool(m_tempUnpackedValue[i], matrixPool);
+            else
+                m_tempUnpackedValue[i].reset();
+        }
+    }
+
     void ForwardProp_ReduceSequenceAxis()
     {
         // Input are stored as (m * k) x b*(batch axis) x s*(sequence axis) and k x b* x s*
@@ -378,7 +407,8 @@ private:
             unpackedInput[i] = ComputationNode<ElemType>::Unpack(
                 InputRef(i).GetSampleLayout(),
                 InputRef(i).Value(),
-                inputMBLayout, m_tempUnpackedValue[i],
+                inputMBLayout,
+                m_tempUnpackedValue[i],
                 m_tempScatterIndices[i],
                 /*batchMajor=*/ false,
                 /*maskGaps=*/ true);
@@ -413,19 +443,16 @@ private:
         bool unpacked[NumInputs];
         for (int i = 0; i < NumInputs; i++)
         {
-            auto layout = InputRef(i).GetMBLayout();
-            TensorShape unpackedShape = InputRef(i).GetSampleLayout();
+            unpackedInput[i] = ComputationNode<ElemType>::Unpack(
+                InputRef(i).GetSampleLayout(),
+                InputRef(i).Value(),
+                input0MBLayout, // the same for both operands
+                m_tempUnpackedValue[i],
+                m_tempScatterIndices[i],
+                /*batchMajor=*/ false,
+                /*maskGaps=*/ true);
 
-            size_t rank = unpackedShape.GetRank();
-            unpackedShape = unpackedShape.AppendInPlace(rank++, maxNumTimeSteps);
-            unpackedShape = unpackedShape.AppendInPlace(rank++, numSequences);
-            unpacked[i] = (maxNumTimeSteps > 1 && numSequences > 1);
-            auto matValue =
-                unpacked[i] ?
-                m_tempUnpackedValue[i] :
-                InputRef(i).ValuePtr();
-
-            unpackedInput[i] = TensorView<ElemType>(matValue, unpackedShape);
+            unpacked[i] = ((input0MBLayout->GetNumTimeSteps() > 1) && (input0MBLayout->GetNumSequences() > 1));
         }
 
         const auto& unpackedInputValue = unpackedInput[1 - inputIndex].GetSOB();
@@ -479,7 +506,7 @@ public:
         auto inputMBLayout = InputRef(0).GetMBLayout();
         if (!fr.IsOneColumnWrt(inputMBLayout))
         {
-            if (ShouldReduceSequenceAxis())
+            if (ReduceSequenceAxis())
             {
                 // only works in PAR mode
                 if (!fr.IsAllFrames())
@@ -539,7 +566,7 @@ public:
         // special treatment if A is minibatch data; see Forward() for comment
         if (!fr.IsOneColumnWrt(InputRef(0).GetMBLayout()))
         {
-            if (ShouldReduceSequenceAxis())
+            if (ReduceSequenceAxis())
             {
                 // only works in PAR mode
                 if (!fr.IsAllFrames())
@@ -672,7 +699,7 @@ public:
     {
         Base::Validate(isFinalValidationPass);
 
-        if (ShouldReduceSequenceAxis())
+        if (ReduceSequenceAxis())
         {
             // generate MBLayout without sequence axis
             if (!Input(0)->HasMBLayout() || !Input(1)->HasMBLayout() || *(Input(0)->GetMBLayout()) != *(Input(1)->GetMBLayout()))
@@ -820,36 +847,25 @@ public:
     void RequestMatricesBeforeForwardProp(MatrixPool& matrixPool) override
     {
         Base::RequestMatricesBeforeForwardProp(matrixPool);
+        RequestReduceSequenceAxisMatricesIfNeeded(matrixPool);
+    }
 
-        if (ShouldReduceSequenceAxis())
-        {
-            for(int i = 0; i < NumInputs; i++)
-            {
-                RequestMatrixFromPool(m_tempScatterIndices[i], matrixPool, InputRef(i).GetMBLayout()->GetNumCols(), true);
-                const auto& packedData = InputRef(i).Value();
-                if (packedData.GetMatrixType() == DENSE)
-                    RequestMatrixFromPool(m_tempUnpackedValue[i], matrixPool, InputRef(i).GetSampleLayout().GetNumElements(), true);
-                else
-                    m_tempUnpackedValue[i] = std::make_shared<Matrix<ElemType>>(packedData.GetNumRows(), packedData.GetNumCols(), packedData.GetDeviceId(), packedData.GetMatrixType(), packedData.GetFormat());
-            }
-        }
+    void ReleaseMatricesAfterForwardProp(MatrixPool& matrixPool) override
+    {
+        Base::ReleaseMatricesAfterForwardProp(matrixPool);
+        ReleaseReduceSequenceAxisMatricesIfNeeded(matrixPool);
+    }
+
+    void RequestMatricesBeforeBackprop(MatrixPool& matrixPool) override
+    {
+        Base::RequestMatricesBeforeBackprop(matrixPool);
+        RequestReduceSequenceAxisMatricesIfNeeded(matrixPool);
     }
 
     void ReleaseMatricesAfterBackprop(MatrixPool& matrixPool) override
     {
         Base::ReleaseMatricesAfterBackprop(matrixPool);
-
-        if (ShouldReduceSequenceAxis())
-        {
-            for (int i = 0; i < NumInputs; i++)
-            {
-                ReleaseMatrixToPool(m_tempScatterIndices[i], matrixPool);
-                if (InputRef(i).Value().GetMatrixType() == DENSE)
-                    ReleaseMatrixToPool(m_tempUnpackedValue[i], matrixPool);
-                else
-                    m_tempUnpackedValue[i].reset();
-            }
-        }
+        ReleaseReduceSequenceAxisMatricesIfNeeded(matrixPool);
     }
 
     size_t OutputRank() const { return m_outputRank; }
@@ -863,7 +879,7 @@ private:
     int m_inferInputRankToMap;  // -1 (not specified) or says how to expand shape of W, to keep this many mapping dims
     bool m_beingUnrolled;
 
-    bool ShouldReduceSequenceAxis() const { return m_inferInputRankToMap == ReduceSequenceAxis; }
+    bool ReduceSequenceAxis() const { return m_inferInputRankToMap == ReduceAllStaticAndSequenceAxes; }
 
     static const int NumInputs = 2;
     shared_ptr<Matrix<ElemType>> m_tempScatterIndices[NumInputs];
@@ -894,7 +910,7 @@ class TimesNode : public TimesNodeBase<ElemType, false>
     static const std::wstring TypeName() { return L"Times"; }
 
 public:
-    TimesNode(DEVICEID_TYPE deviceId, const wstring& name, size_t outputRank = 1, int inferInputRankToMap = Base::KeepAllDynamicAxes)
+    TimesNode(DEVICEID_TYPE deviceId, const wstring& name, size_t outputRank = 1, int inferInputRankToMap = Base::ReduceAllStaticAxes)
         : Base(deviceId, name, outputRank, inferInputRankToMap)
     {
     }
@@ -927,7 +943,7 @@ class TransposeTimesNode : public TimesNodeBase<ElemType, true>
 public:
     DeclareConstructorFromConfigWithNumInputs(TransposeTimesNode);
     TransposeTimesNode(DEVICEID_TYPE deviceId, const wstring& name, size_t outputRank = 1)
-        : Base(deviceId, name, outputRank, Base::KeepAllDynamicAxes)
+        : Base(deviceId, name, outputRank, Base::ReduceAllStaticAxes)
     {
         if (outputRank != 1)
             LogicError("TransposeTimes does not yet support outputRank other than 1");
@@ -964,7 +980,7 @@ private:
     size_t m_bitShiftB; 
 
 public:
-    QuantizedTimesNode(DEVICEID_TYPE deviceId, const wstring& name, size_t bitShiftA = 1, size_t bitShiftB = 1, size_t outputRank = 1, int inferInputRankToMap = -1)
+    QuantizedTimesNode(DEVICEID_TYPE deviceId, const wstring& name, size_t bitShiftA = 1, size_t bitShiftB = 1, size_t outputRank = 1, int inferInputRankToMap = Base::ReduceAllStaticAxes)
         : Base(deviceId, name, outputRank, inferInputRankToMap), m_bitShiftA(bitShiftA), m_bitShiftB(bitShiftB)
     {
         // TODO support multiplication on GPUs as well.

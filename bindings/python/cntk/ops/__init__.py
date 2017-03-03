@@ -15,8 +15,8 @@ from ..utils import sanitize_input, sanitize_shape, get_data_type, sanitize_axis
 from ..axis import Axis
 from .. import cntk_py
 
-TIMES_KEEP_ALL_DYNAMIC_AXES = cntk_py.TimesKeepAllDynamicAxes
-TIMES_REDUCE_SEQUENCE_AXIS  = cntk_py.TimesReduceSequenceAxis
+TIMES_REDUCE_ALL_STATIC_AXES               = cntk_py.TimesReduceAllStaticAxes
+TIMES_REDUCE_ALL_STATIC_AND_SEQUENCE_AXES  = cntk_py.TimesReduceAllStaticAndSequenceAxes
 
 @typemap
 def combine(operands, name=''):
@@ -1193,7 +1193,7 @@ def log_add_exp(left, right, name=''):
 INFINITELY_REPEAT = cntk_py.MinibatchSource.infinitely_repeat
 
 @typemap
-def times(left, right, output_rank=1, infer_input_rank_to_map=TIMES_KEEP_ALL_DYNAMIC_AXES, name=''):
+def times(left, right, output_rank=1, infer_input_rank_to_map=TIMES_REDUCE_ALL_STATIC_AXES, name=''):
     '''
     The output of this operation is the matrix product of the two input matrices.
     It supports broadcasting. Sparse is supported in the left operand, if it is a matrix.
