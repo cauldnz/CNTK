@@ -544,7 +544,7 @@ public:
             // recursively call ourselves for each individual time and sequence
 
             // note this is not performant, warn user about the slow path being used
-            if (HasEnvironmentPtr() && Environment().traceLevel > 0)
+            if (Base::HasEnvironmentPtr() && Base::Environment().traceLevel > 0)
                 std::call_once(m_unrollWarningOnceFlag, [this]{ fprintf(stderr, "WARNING: %ls %ls operation: being unrolled, execution may be slow\n", NodeName().c_str(), OperationName().c_str()); });
 
             auto timeRange     = fr.GetTimeRange();
