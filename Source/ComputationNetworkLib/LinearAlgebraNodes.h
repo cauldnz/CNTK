@@ -544,7 +544,7 @@ public:
             // recursively call ourselves for each individual time and sequence
 
             // note this is not performant, warn user about the slow path being used
-            std::call_once(m_unrollWarningOnceFlag, [this]{ fprintf(stderr, "%ls %ls operation: being unrolled, execution may be slow", NodeName().c_str(), OperationName().c_str()); });
+            std::call_once(m_unrollWarningOnceFlag, [this]{ fprintf(stderr, "%ls %ls operation: being unrolled, execution may be slow\n", NodeName().c_str(), OperationName().c_str()); });
 
             auto timeRange     = fr.GetTimeRange();
             auto sequenceRange = fr.GetSequenceRange();
