@@ -101,7 +101,7 @@ template <class ElemType>
     {
         auto inputMBLayout = InputRef(0).GetMBLayout();
         if (inputMBLayout->HasSequenceBeyondBegin() || inputMBLayout->HasSequenceBeyondEnd())
-            LogicError("%ls %ls node cannot perform sequence axis reduction for truncated sequence.", Base::NodeDescription().c_str(), typeid(*this).name());
+            LogicError("%ls: %s node cannot perform sequence axis reduction for truncated sequence.", Base::NodeDescription().c_str(), typeid(*this).name());
 
         GetMBLayout()->InitAsFrameMode(inputMBLayout->GetNumSequences());
         UpdateFunctionValuesSize();
