@@ -1200,10 +1200,10 @@ def times(left, right, output_rank=1, infer_input_rank_to_map=TIMES_REDUCE_ALL_S
     The operator '@' has been overloaded such that in Python 3.5 and later X @ W equals times(X, W).
     
     For better performance on times operation on sequence which is followed by sequence.reduce_sum, use
-    infer_input_rank_to_map=TIMES_REDUCE_ALL_STATIC_AND_SEQUENCE_AXIS, i.e. replace following:
+    infer_input_rank_to_map=TIMES_REDUCE_ALL_STATIC_AND_SEQUENCE_AXES, i.e. replace following:
         sequence.reduce_sum(times(seq1, seq2))
     with:
-        times(seq1, seq2, infer_input_rank_to_map=TIMES_REDUCE_ALL_STATIC_AND_SEQUENCE_AXIS)
+        times(seq1, seq2, infer_input_rank_to_map=TIMES_REDUCE_ALL_STATIC_AND_SEQUENCE_AXES)
 
     Example:
         >>> C.times([[1,2],[3,4]], [[5],[6]]).eval()
