@@ -542,6 +542,10 @@ public:
             }
 
             // recursively call ourselves for each individual time and sequence
+
+            // note this is not performant, warn user about the slow path being used
+            std::call_once(m_unrollWarningOnceFlag, [this]{ fprintf(stderr, "%ls %ls operation: being unrolled, execution may be slow", NodeName().c_str(), OperationName().c_str()); });
+
             auto timeRange     = fr.GetTimeRange();
             auto sequenceRange = fr.GetSequenceRange();
             m_beingUnrolled = true;
@@ -878,7 +882,8 @@ private:
     size_t m_outputRank;
     int m_inferInputRankToMap;  // -1 (not specified) or says how to expand shape of W, to keep this many mapping dims
     bool m_beingUnrolled;
-
+    std::once_flag m_unrollWarningOnceFlag;
+	
     bool ReduceSequenceAxis() const { return m_inferInputRankToMap == ReduceAllStaticAndSequenceAxes; }
 
     static const int NumInputs = 2;
