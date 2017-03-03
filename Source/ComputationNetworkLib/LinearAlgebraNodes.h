@@ -265,12 +265,12 @@ class TimesNodeBase : public ComputationNode<ElemType>, public NumInputs<2>
 public:
     enum : int
     {
-        InferInputRankToMap_KeepAllDynamicAxes = -1, // the default, keep all dynamic axes in the output of Times
-        InferInputRankToMap_ReduceSequenceAxis = -2, // reduce the sequence axis in the output of Times. Currently only support cases like (m x k x s* x b*) x (k x s* x b*) -> (m x b*)
+        KeepAllDynamicAxes = -1, // the default, keep all dynamic axes in the output of Times
+        ReduceSequenceAxis = -2, // reduce the sequence axis in the output of Times. Currently only support cases like (m x k x s* x b*) x (k x s* x b*) -> (m x b*)
     };
 
 public:
-    TimesNodeBase(DEVICEID_TYPE deviceId, const wstring& name, size_t outputRank = 1, int inferInputRankToMap = InferInputRankToMap_KeepAllDynamicAxes)
+    TimesNodeBase(DEVICEID_TYPE deviceId, const wstring& name, size_t outputRank = 1, int inferInputRankToMap = KeepAllDynamicAxes)
         : Base(deviceId, name), m_outputRank(outputRank), m_inferInputRankToMap(inferInputRankToMap), m_beingUnrolled(false)
     {
     }
@@ -303,7 +303,7 @@ public:
         if (modelVersion >= CNTK_MODEL_VERSION_12)
             fstream >> m_inferInputRankToMap;
         else
-            m_inferInputRankToMap = InferInputRankToMap_KeepAllDynamicAxes;
+            m_inferInputRankToMap = KeepAllDynamicAxes;
     }
 
 protected:
@@ -387,6 +387,8 @@ private:
         // note the unpacked input is not the normal MBLayout (batchMajor) so do ColumnSlice directly
         const Matrix<ElemType>& mat0 = unpackedInput[0].GetSOB();
         const Matrix<ElemType>& mat1 = unpackedInput[1].GetSOB();
+
+        // unroll in the batch axis, we may use batched GEMM in future
         for (int s = 0; s < numSequences; s++)
         {
             Matrix<ElemType> mat0Slice = mat0.ColumnSlice(s * maxNumTimeSteps, maxNumTimeSteps); // (m * k) x s*
@@ -477,7 +479,7 @@ public:
         auto inputMBLayout = InputRef(0).GetMBLayout();
         if (!fr.IsOneColumnWrt(inputMBLayout))
         {
-            if (ReduceSequenceAxis())
+            if (ShouldReduceSequenceAxis())
             {
                 // only works in PAR mode
                 if (!fr.IsAllFrames())
@@ -537,7 +539,7 @@ public:
         // special treatment if A is minibatch data; see Forward() for comment
         if (!fr.IsOneColumnWrt(InputRef(0).GetMBLayout()))
         {
-            if (ReduceSequenceAxis())
+            if (ShouldReduceSequenceAxis())
             {
                 // only works in PAR mode
                 if (!fr.IsAllFrames())
@@ -670,7 +672,7 @@ public:
     {
         Base::Validate(isFinalValidationPass);
 
-        if (ReduceSequenceAxis())
+        if (ShouldReduceSequenceAxis())
         {
             // generate MBLayout without sequence axis
             if (!Input(0)->HasMBLayout() || !Input(1)->HasMBLayout() || *(Input(0)->GetMBLayout()) != *(Input(1)->GetMBLayout()))
@@ -819,7 +821,7 @@ public:
     {
         Base::RequestMatricesBeforeForwardProp(matrixPool);
 
-        if (ReduceSequenceAxis())
+        if (ShouldReduceSequenceAxis())
         {
             for(int i = 0; i < NumInputs; i++)
             {
@@ -837,7 +839,7 @@ public:
     {
         Base::ReleaseMatricesAfterBackprop(matrixPool);
 
-        if (ReduceSequenceAxis())
+        if (ShouldReduceSequenceAxis())
         {
             for (int i = 0; i < NumInputs; i++)
             {
@@ -861,7 +863,7 @@ private:
     int m_inferInputRankToMap;  // -1 (not specified) or says how to expand shape of W, to keep this many mapping dims
     bool m_beingUnrolled;
 
-    bool ReduceSequenceAxis() const { return m_inferInputRankToMap == InferInputRankToMap_ReduceSequenceAxis; }
+    bool ShouldReduceSequenceAxis() const { return m_inferInputRankToMap == ReduceSequenceAxis; }
 
     static const int NumInputs = 2;
     shared_ptr<Matrix<ElemType>> m_tempScatterIndices[NumInputs];
@@ -892,7 +894,7 @@ class TimesNode : public TimesNodeBase<ElemType, false>
     static const std::wstring TypeName() { return L"Times"; }
 
 public:
-    TimesNode(DEVICEID_TYPE deviceId, const wstring& name, size_t outputRank = 1, int inferInputRankToMap = Base::InferInputRankToMap_KeepAllDynamicAxes)
+    TimesNode(DEVICEID_TYPE deviceId, const wstring& name, size_t outputRank = 1, int inferInputRankToMap = Base::KeepAllDynamicAxes)
         : Base(deviceId, name, outputRank, inferInputRankToMap)
     {
     }
@@ -925,7 +927,7 @@ class TransposeTimesNode : public TimesNodeBase<ElemType, true>
 public:
     DeclareConstructorFromConfigWithNumInputs(TransposeTimesNode);
     TransposeTimesNode(DEVICEID_TYPE deviceId, const wstring& name, size_t outputRank = 1)
-        : Base(deviceId, name, outputRank, Base::InferInputRankToMap_KeepAllDynamicAxes)
+        : Base(deviceId, name, outputRank, Base::KeepAllDynamicAxes)
     {
         if (outputRank != 1)
             LogicError("TransposeTimes does not yet support outputRank other than 1");

@@ -353,7 +353,7 @@ void TestTimesReduceSequenceAxis(
 
     FunctionPtr funcs[(int)FuncType::TotalTypes]=
     {
-        Times(inputVar[0], inputVar[1], 1, InferInputRankToMapReduceSequenceAxis),
+        Times(inputVar[0], inputVar[1], 1, TimesReduceSequenceAxis),
         Sequence::ReduceSum(Times(inputVar[0], inputVar[1]))
     };
 
