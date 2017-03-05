@@ -604,7 +604,7 @@ namespace CNTK
                             for (int i3 = 0; i3 < (int)m_inputs[0].Shape().Rank(); ++i3)
                                 reductionAxes.push_back(i3);
 
-                            outputShape = ReductionOpOutputShape(m_op, predictionShape, reductionAxes, /*preserveReductionAxes =*/ false);
+                            outputShape = ReductionOpOutputShape(m_op, predictionShape, reductionAxes, /*preserveReductionAxes =*/ predictionShape.Rank() == 1);
                             break;
                         }
                         case PrimitiveOpType::ReduceElements:
